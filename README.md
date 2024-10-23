@@ -1,36 +1,39 @@
--import backtrader as bt
+import yfinance as yf
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.metrics import classification_report
 
-class XAUUSDBot(bt.Strategy):
-    params = (('fast_ma', 10), ('slow_ma', 30))
+# Step 1: Fetch Historical Data
+data = yf.download('XAUUSD=X', start='2020-01-01', end='2022-02-26')
 
-    def __init__(self):
-        self.fast_ma = bt.ind.SMA(period=self.params.fast_ma)
-        self.slow_ma = bt.ind.SMA(period=self.params.slow_ma)
-        self.crossover = bt.ind.CrossOver(self.fast_ma, self.slow_ma)
+# Step 2: Feature Engineering
+data['Price_Change'] = data['Close'].shift(-1) - data['Close']
+data['Signal'] = 0
+data['Signal'][data['Price_Change'] > 0] = 1  # Buy signal
+data['Signal'][data['Price_Change'] < 0] = -1  # Sell signal
+data.dropna(inplace=True)
 
-    def next(self):
-        if self.crossover > 0:
-            self.buy()
-        elif self.crossover < 0:
-            self.sell()
+# Features and Target Variable
+X = data[['Open', 'High', 'Low', 'Close', 'Volume']]
+y = data['Signal']
 
-cerebro = bt.Cerebro()
-cerebro.addstrategy(XAUUSDBot)
-cerebro.run()
-import ccxt
+# Step 3: Train-Test Split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-# Create a CCXT exchange instance
-exchange = ccxt.binance()
+# Step 4: Train the Model
+model = DecisionTreeClassifier()
+model.fit(X_train, y_train)
 
-# Create a data feed
-data_feed = bt.feeds.CCXT(exchange, 'XAUUSD', timeframe=bt.TimeFrame.Minutes)
+# Step 5: Make Predictions
+predictions = model.predict(X_test)
 
-# Add the data feed to the cerebro engine
-cerebro.adddata(data_feed)
+# Step 6: Evaluate the Model
+print(classification_report(y_test, predictions))
 
-# Set the broker
-cerebro.broker.setcash(10000.0)
+# Step 7: Add Predictions to DataFrame
+data['Predicted_Signal'] = 0
+data.loc[X_test.index, 'Predicted_Signal'] = predictions
 
-# Run the backtest
-cerebro.run()
-cerebro.optstrategy(XAUUSDBot, fast_ma=[10, 20, 30], slow_ma=[30, 60, 90])
+# Display the last few rows with predictions
+print(data[['Close', 'Signal', 'Predicted_Signal']].tail())
